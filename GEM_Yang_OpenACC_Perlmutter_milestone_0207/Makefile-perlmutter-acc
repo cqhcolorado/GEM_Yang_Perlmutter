@@ -1,0 +1,94 @@
+SRCS =	gem_com.f90 gem_equil.f90 gem_main.f90 gem_outd.f90 gem_fcnt.f90 gem_fft_wrapper.f90 gem_gkps_adi.f90 coupling_core_edge.f90 mapping.f90 out3d.f90 adios2_comm_mod.f90 pushe.f90
+
+OBJS =	gem_com.o gem_equil.o gem_main.o gem_outd.o gem_fcnt.o gem_fft_wrapper.o gem_gkps_adi.o coupling_core_edge.o mapping.o out3d.o adios2_comm_mod.o pushe.o
+
+#DFFTPACK=/global/homes/j/jycheng/sourcecode/dfftpack/libdfftpack.a
+#DFFTPACK=/ccs/home/cycheng/git/dfftpack/libdfftpack.a
+#DFFTPACK=dfftpack/libdfftpack.a
+#DFFTPACK=/gpfs/alpine/world-shared/fus123/jycheng/software/dfftpack/libdfftpack.a
+DFFTPACK=/global/homes/c/cqh2021/SOFTWARE/dfftpack/libdfftpack.a
+LIBS = $(DFFTPACK)
+PLIB = gem_pputil.o
+
+#COUPLING_OPT := -DCOUPLING -DKINETIC_ELECTRON -DRK4
+#DEBUG_MAP_OPT := -DDEBUG_MAPPING
+MAP_OPT := -DMAP_PARALLEL -DGYRO_TEST -DDIRECT_F
+#XGC_3D_OUTPUT_OPT := -DXGC_3D_OUTPUT
+#EQUIL_OUTPUT_OPT := -DEQUIL_OUTPUT
+ADIOS2_OPT := -DADIOS2 #-DADIOS2_DEBUG
+#OPENMP_OPT := -DOPENMP
+OPENACC_OPT := -DOPENACC
+#F90 = ftn -qopenmp
+#F90 = mpifort -DOLD_PMOVE #$(OPENACC_OPT)
+#F90 = mpifort $(OPENACC_OPT)#-DOLD_PMOVE #$(OPENACC_OPT)
+F90 = ftn
+#OPT = -FR -r8 -heap-arrays -O2 -g -traceback -check bounds
+#OPT = -FR -r8 -O3 -DADIOS=1 -cpp -fpp -no-ipo -mkl -check bounds -traceback
+#OPT = -fast -r8 -Kieee -llapack -lblas -DADIOS=1 -g #-Minfo=accel -acc -ta=tesla:pinned
+#OPT = -fast -r8 -Kieee -llapack -lblas -g -cpp -Minfo=accel -acc -ta=nvidia:cc70
+#OPT = -O0 -r8 -Kieee -llapack -lblas -g -cpp -Mbounds -Minfo=accel -acc -ta=nvidia:cc70
+OPT = -fast -r8 -Kieee -llapack -lblas -cpp -Mbounds #-Minfo=mp -mp#=gpu -gpu=cc70       	
+#OPT = -O0 -r8 -Kieee -llapack -lblas -g -cpp -Mbounds -Minfo=accel -acc -ta=nvidia:cc70
+F90 += $(COUPLING_OPT) $(XGC_3D_OUTPUT_OPT) $(EQUIL_OUTPUT_OPT) $(DEBUG_MAP_OPT) $(MAP_OPT) $(ADIOS2_OPT)
+
+ADIOS2_DIR ?=/global/homes/c/cqh2021/SOFTWARE/ADIOS2_install/adios2-bin/adios2/2.7.1
+ADIOS2_INC=$(shell $(ADIOS2_DIR)/bin/adios2-config --fortran-flags)
+ADIOS2_LIB=$(shell $(ADIOS2_DIR)/bin/adios2-config --fortran-libs --cxx-libs)
+
+PSPLINE_DIR ?= /global/homes/c/cqh2021/SOFTWARE/pspline-gpu
+PSPLINE_INC=-I$(PSPLINE_DIR)
+PSPLINE_LIB=-L$(PSPLINE_DIR)
+
+LIBS+= $(PSPLINE_DIR)/libpspline.a
+
+LIB := $(ADIOS_INC) $(PSPLINE_INC) $(ADIOS2_INC)
+LD_LIB := $(ADIOS_LIB) $(PSPLINE_LIB) $(ADIOS2_LIB)
+
+LDFLAGS = 
+
+#all : gem
+
+gem_main: gem_equil.o gem_main.o gem_outd.o gem_fcnt.o gem_pputil.o gem_com.o gem_fft_wrapper.o gem_gkps_adi.o coupling_core_edge.o mapping.o out3d.o adios2_comm_mod.o pushe.o
+	$(F90)  -o gem_main $(OPT) $(OBJS) $(PLIB) $(LIBS) $(LIB) $(LD_LIB) 
+
+gem_pputil.o: gem_pputil.F90
+	$(F90) -c $(OPT) gem_pputil.F90
+
+gem_com.o: gem_com.F90 gem_pputil.o
+	$(F90) -c $(OPT) gem_com.F90
+
+gem_equil.o: gem_equil.F90 gem_pputil.o
+	$(F90) -c $(OPT) gem_equil.F90
+
+pushe.o: pushe.F90 gem_com.o gem_equil.o
+	$(F90) -c $(OPT) pushe.F90
+
+adios2_comm_mod.o : adios2_comm_mod.F90 gem_com.o
+	$(F90) -c $(OPT) $(LIB) $(LD_LIB) adios2_comm_mod.F90
+
+coupling_core_edge.o : coupling_core_edge.F90 gem_com.o adios2_comm_mod.o
+	$(F90) -c $(OPT)  $(LIB) $(LD_LIB) coupling_core_edge.F90
+
+mapping.o : mapping.F90 gem_com.o gem_equil.o coupling_core_edge.o adios2_comm_mod.o
+	$(F90) -c $(OPT)  $(LIB) $(LD_LIB) mapping.F90
+
+gem_gkps_adi.o: gem_gkps_adi.F90 gem_com.o gem_equil.o gem_pputil.o
+	$(F90) -c $(OPT) gem_gkps_adi.F90
+
+out3d.o: out3d.F90 gem_com.F90 gem_com.o gem_equil.o coupling_core_edge.o mapping.o
+	$(F90) -c $(OPT) $(LIB) $(LD_LIB) out3d.F90
+
+gem_main.o: gem_main.F90 gem_fft_wrapper.o gem_pputil.o gem_com.o gem_equil.o gem_gkps_adi.o coupling_core_edge.o mapping.o out3d.o pushe.o
+	$(F90) -c $(OPT) $(LIB) $(LD_LIB) gem_main.F90
+
+gem_outd.o: gem_outd.F90 gem_fft_wrapper.o gem_pputil.o gem_com.o gem_equil.o
+	$(F90) -c $(OPT) gem_outd.F90
+
+gem_fcnt.o: gem_fcnt.F90
+	$(F90) -c $(OPT) gem_fcnt.F90
+
+gem_fft_wrapper.o: gem_fft_wrapper.F90
+	$(F90) -c $(OPT) gem_fft_wrapper.F90
+
+clean:
+	rm -f *.o *.lst *.mod gem_main
