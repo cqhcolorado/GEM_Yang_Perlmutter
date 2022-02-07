@@ -1,0 +1,18 @@
+#!/bin/bash -l
+
+#SBATCH -A m499
+#SBATCH -q debug
+#SBATCH -N 1
+#SBATCH --ntasks=6
+#SBATCH --cpus-per-task=8
+#SBATCH -C haswell
+#SBATCH -t 0:30:00
+#SBATCH -J small
+
+export OMP_PROC_BIND=spread
+export OMP_PLACES=threads
+export OMP_NUM_THREADS=8
+
+cd $SLURM_SUBMIT_DIR
+
+srun --cpu-bind=cores ./gem_main >& run.out
